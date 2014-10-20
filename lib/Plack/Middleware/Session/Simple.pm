@@ -19,9 +19,10 @@ use Plack::Util::Accessor qw/
     expires
     secure
     httponly
+    serializer
 /;
 
-our $VERSION = "0.02";
+our $VERSION = "0.03";
 
 sub prepare_app {
     my $self = shift;
@@ -90,6 +91,7 @@ sub get_session {
     return unless $cookie =~ $self->{sid_validator};
 
     my $session = $self->{store}->get($cookie) or return;
+    $session = $self->{serializer}->[1]->($session) if $self->{serializer};
     return ($cookie, $session);
 }
 
@@ -118,9 +120,13 @@ sub finalize {
         } elsif ($options->{change_id}) {
             $self->{store}->remove($options->{id});
             $options->{id} = $self->{sid_generator}->();
-            $self->{store}->set($options->{id}, $session->[0]);
+            my $val = $session->[0];
+            $val = $self->{serializer}->[0]->($val) if $self->{serializer};
+            $self->{store}->set($options->{id}, $val);            
         } else {
-            $self->{store}->set($options->{id}, $session->[0]);
+            my $val = $session->[0];
+            $val = $self->{serializer}->[0]->($val) if $self->{serializer};
+            $self->{store}->set($options->{id}, $val);
         }
     }
 
@@ -294,6 +300,20 @@ CodeRef that used to generate unique session ids, by default it uses SHA1
 =item sid_validator
 
 Regexp that used to validate session id in Cookie
+
+=item serializer
+
+serialize,deserialize method. Optional. This is useful with Cache::FastMmap
+
+  my $cfm = Cache::FastMmap->new(raw_values => 1);
+  my $decoder = Sereal::Decoder->new();
+  my $encoder = Sereal::Encoder->new();
+  builder {
+    enable 'Session::Simple',
+        store => $fm,
+        serializer => [ sub { $encoder->encode($_[0]) }, sub { $decoder->decode($_[0]) } ],
+    $app;
+  };
 
 =back 
 
